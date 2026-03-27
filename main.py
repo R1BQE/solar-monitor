@@ -5,43 +5,42 @@ import threading
 
 class SolarApp(wx.Frame):
     def __init__(self):
-        super().__init__(parent=None, title='Монитор солнечной активности R1BQE', size=(450, 500))
+        super().__init__(parent=None, title='Монитор радиопрохождения R1BQE', size=(800, 650))
         self.panel = wx.Panel(self)
         
-        # Основной контейнер
         self.sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        # Создаем notebook для вкладок
         self.notebook = wx.Notebook(self.panel)
         
-        # Первая вкладка: Индексы солнечной активности
+        # Первая вкладка: Индексы
         self.indexes_panel = wx.Panel(self.notebook)
         self.indexes_sizer = wx.BoxSizer(wx.VERTICAL)
         self.list_ctrl = wx.ListCtrl(self.indexes_panel, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
-        self.list_ctrl.InsertColumn(0, 'Параметр', width=150)
-        self.list_ctrl.InsertColumn(1, 'Значение', width=150)
-        self.list_ctrl.InsertColumn(2, 'Описание', width=200)
+        self.list_ctrl.InsertColumn(0, 'Параметр', width=180)
+        self.list_ctrl.InsertColumn(1, 'Значение', width=120)
+        self.desc_col_width = 450
+        self.list_ctrl.InsertColumn(2, 'Описание для радиолюбителя', width=self.desc_col_width)
+        
         self.indexes_sizer.Add(self.list_ctrl, 1, wx.ALL | wx.EXPAND, 10)
         self.indexes_panel.SetSizer(self.indexes_sizer)
-        self.notebook.AddPage(self.indexes_panel, 'Индексы солнечной активности')
+        self.notebook.AddPage(self.indexes_panel, 'Солнечные индексы')
         
-        # Вторая вкладка: КВ Диапазоны
+        # Вторая вкладка: КВ
         self.bands_panel = wx.Panel(self.notebook)
         self.bands_sizer = wx.BoxSizer(wx.VERTICAL)
         self.bands_list = wx.ListCtrl(self.bands_panel, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
-        self.bands_list.InsertColumn(0, 'Диапазон', width=100)
-        self.bands_list.InsertColumn(1, 'Днём', width=100)
-        self.bands_list.InsertColumn(2, 'Ночью', width=100)
+        self.bands_list.InsertColumn(0, 'Диапазон', width=120)
+        self.bands_list.InsertColumn(1, 'Днём', width=150)
+        self.bands_list.InsertColumn(2, 'Ночью', width=150)
         self.bands_sizer.Add(self.bands_list, 1, wx.ALL | wx.EXPAND, 10)
         self.bands_panel.SetSizer(self.bands_sizer)
         self.notebook.AddPage(self.bands_panel, 'КВ Диапазоны')
         
-        # Третья вкладка: УКВ Условия
+        # Третья вкладка: УКВ
         self.vhf_panel = wx.Panel(self.notebook)
         self.vhf_sizer = wx.BoxSizer(wx.VERTICAL)
         self.vhf_list = wx.ListCtrl(self.vhf_panel, style=wx.LC_REPORT | wx.BORDER_SUNKEN)
-        self.vhf_list.InsertColumn(0, 'Феномен', width=200)
-        self.vhf_list.InsertColumn(1, 'Значение', width=150)
+        self.vhf_list.InsertColumn(0, 'Феномен (Регион)', width=400)
+        self.vhf_list.InsertColumn(1, 'Состояние', width=150)
         self.vhf_sizer.Add(self.vhf_list, 1, wx.ALL | wx.EXPAND, 10)
         self.vhf_panel.SetSizer(self.vhf_sizer)
         self.notebook.AddPage(self.vhf_panel, 'УКВ Условия')
@@ -50,6 +49,11 @@ class SolarApp(wx.Frame):
         self.refresh_btn = wx.Button(self.panel, label='Обновить данные (F5)')
         self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh)
         
+        # Галочка скрытия подсказок
+        self.show_help_cb = wx.CheckBox(self.panel, label='Показывать подробные описания параметров')
+        self.show_help_cb.SetValue(True)
+        self.show_help_cb.Bind(wx.EVT_CHECKBOX, self.on_toggle_help)
+        
         # Горячие клавиши
         accel_tbl = wx.AcceleratorTable([
             (wx.ACCEL_NORMAL, wx.WXK_F5, self.refresh_btn.GetId())
@@ -57,13 +61,22 @@ class SolarApp(wx.Frame):
         self.SetAcceleratorTable(accel_tbl)
         
         self.sizer.Add(self.notebook, 1, wx.ALL | wx.EXPAND, 10)
-        self.sizer.Add(self.refresh_btn, 0, wx.ALL | wx.CENTER, 10)
+        self.sizer.Add(self.refresh_btn, 0, wx.ALL | wx.CENTER, 5)
+        self.sizer.Add(self.show_help_cb, 0, wx.ALL | wx.CENTER, 10)
         
         self.panel.SetSizer(self.sizer)
-        
-        # Автозагрузка при старте
+        self.current_params = [] 
         self.on_refresh(None)
         self.Show()
+
+    def on_toggle_help(self, event):
+        show = self.show_help_cb.GetValue()
+        if show:
+            self.list_ctrl.InsertColumn(2, 'Описание для радиолюбителя', width=self.desc_col_width)
+        else:
+            self.list_ctrl.DeleteColumn(2)
+        if self.current_params:
+            self.refresh_indexes_list()
 
     def get_k_desc(self, k):
         try:
@@ -72,99 +85,97 @@ class SolarApp(wx.Frame):
             if k <= 3: return "Спокойно"
             if k == 4: return "Нестабильно"
             return "Магнитная буря!"
-        except:
-            return ""
+        except: return ""
 
-    def translate_condition(self, cond):
+    def translate_val(self, val):
         trans = {
-            'Poor': 'Плохо',
-            'Fair': 'Средне',
-            'Good': 'Хорошо',
-            'Excellent': 'Отлично',
-            'Band Closed': 'Закрыт',
-            'Band Open': 'Открыт'
+            'Poor': 'Плохо', 'Fair': 'Средне', 'Good': 'Хорошо', 'Excellent': 'Отлично',
+            'Band Closed': 'Закрыт', 'Band Open': 'Открыт', 'VR QUIET': 'Очень спокойно',
+            'QUIET': 'Спокойно', 'UNSETTLED': 'Неустойчиво', 'ACTIVE': 'Активно',
+            'MINOR STORM': 'Малая буря', 'MAJOR STORM': 'Сильная буря', 'SEVERE STORM': 'Жесткий шторм'
         }
-        return trans.get(cond, cond)
+        return trans.get(val, val)
 
-    def translate_vhf_name(self, name):
+    def translate_vhf(self, name):
         trans = {
-            'vhf-aurora': 'Аврора (отражение от полярного сияния)',
-            'E-Skip': 'Спорадическое прохождение (E-слой)'
+            'vhf-aurora': 'Аврора (отражение от полярного сияния)', 'E-Skip': 'Спорадик (E-слой)',
+            'northern_hemi': 'Северное полушарие', 'europe': 'Европа', 'north_america': 'Северная Америка',
+            'europe_6m': 'Европа 6м (50 МГц)', 'europe_4m': 'Европа 4м (70 МГц)'
         }
         return trans.get(name, name)
-
-    def translate_vhf_loc(self, loc):
-        trans = {
-            'northern_hemi': 'Северное полушарие',
-            'europe': 'Европа',
-            'north_america': 'Северная Америка',
-            'europe_6m': 'Европа 50 МГц (6м)',
-            'europe_4m': 'Европа 70 МГц (4м)'
-        }
-        return trans.get(loc, loc)
 
     def load_data(self, is_manual):
         url = 'https://www.hamqsl.com/solarxml.php'
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
-            
             root = ET.fromstring(response.content)
             data = root.find('solardata')
             
-            # Словарь параметров для вывода
-            params = [
-                ('SFI (Поток)', data.findtext('solarflux'), 'Индекс солнечного потока. Показывает ионизацию. Выше 150 — отлично для 10-15м, ниже 70 — ВЧ диапазоны закрыты.'),
-                ('Sunspots (Пятна)', data.findtext('sunspots'), 'Число солнечных пятен. Чем больше пятен, тем лучше ионизация и выше частоты прохождения.'),
-                ('A-Index', data.findtext('aindex'), 'Индекс геомагнитной активности. Низкие значения (0-7) — спокойные условия, высокие — бури.'),
-                ('K-Index', f"{data.findtext('kindex')} ({self.get_k_desc(data.findtext('kindex'))})", 'Индекс геомагнитной активности по шкале K. 0-9, где 0 — очень спокойно, 5+ — буря.'),
-                ('Magnetic Field', data.findtext('magfield'), 'Магнитное поле Земли в нТ. Нормально 20-40 нТ.'),
-                ('Solar Wind', f"{data.findtext('solarwind')} км/с", 'Скорость солнечного ветра. Выше 500 км/с — возможны бури.'),
-                ('MUF', data.findtext('muf'), 'Максимальная usable frequency — максимальная частота для прохождения.'),
-                ('Signal Noise', data.findtext('signalnoise'), 'Шум сигнала. Высокий шум ухудшает связь.'),
+            def get_t(tag):
+                t = data.findtext(tag)
+                if tag == "updated":
+                    import re
+                    t = re.sub(r'(\d{2})(\d{2}) GMT$', r'\1:\2 GMT', t)
+                return t if t and t != "NoRpt" else "нет данных"
+
+            self.current_params = [
+                ('Последнее обновление', get_t('updated'), 'Время последнего замера данных (GMT).'),
+                ('SFI (Поток)', get_t('solarflux'), 'Индекс солнечного потока. Выше 150 — отлично для 10-15м.'),
+                ('Sunspots (Пятна)', get_t('sunspots'), 'Чем больше пятен, тем лучше ионизация и выше частоты прохождения.'),
+                ('A-Index', get_t('aindex'), 'Среднесуточная активность поля. Выше 15-20 — прохождение ухудшается.'),
+                ('K-Index', f"{get_t('kindex')} ({self.get_k_desc(get_t('kindex'))})", 'Текущая активность. 0-2 — идеал, 4+ — замирания и шум.'),
+                ('X-Ray (Всплески)', get_t('xray'), 'Интенсивность рентгена. Вспышки класса M или X «тушат» эфир.'),
+                ('Magnetic Field (Bz)', get_t('magneticfield'), 'Вектор поля. Отрицательный Bz (ниже 0) открывает путь бурям.'),
+                ('Solar Wind (Ветер)', f"{get_t('solarwind')} км/с", 'Норма: 300-450. Выше 500 — растет уровень шума.'),
+                ('Proton Flux', get_t('protonflux'), 'Поток протонов. Выше 100 — закрываются полярные трассы.'),
+                ('Electron Flux', get_t('electonflux'), 'Поток электронов. Выше 5000 — сильные фединги (замирания).'),
+                ('Helium Line', get_t('heliumline'), 'Ионизация слоя F2. Хорошо, если значение выше 100.'),
+                ('Aurora', get_t('aurora'), 'Уровень активности полярного сияния. Чем выше, тем хуже прохождение через полюса.'),
+                ('LatDegree', f"{get_t('latdegree')}°", 'Граница сияния. Если ниже 60°, возможна Aurora в средних широтах.'),
+                ('Geomag Field', self.translate_val(get_t('geomagfield')), 'Общий статус магнитного поля Земли.'),
+                ('Signal Noise', get_t('signalnoise'), 'Уровень фонового шума по шкале S.'),
+                ('MUF (МПЧ)', get_t('muf'), 'Максимально применимая частота. Выше этого значения — прохождения нет.'),
             ]
             
-            # КВ Диапазоны
             bands_data = {}
-            calculatedconditions = data.find('calculatedconditions')
-            if calculatedconditions is not None:
-                for band in calculatedconditions.findall('band'):
-                    name = band.get('name')
-                    time = band.get('time')
-                    condition = band.text
-                    if name not in bands_data:
-                        bands_data[name] = {'day': '—', 'night': '—'}
-                    if condition:
-                        bands_data[name][time] = self.translate_condition(condition.strip())
+            calc_cond = data.find('calculatedconditions')
+            if calc_cond is not None:
+                for band in calc_cond.findall('band'):
+                    name, time, cond = band.get('name'), band.get('time'), band.text
+                    if name not in bands_data: bands_data[name] = {'day': '—', 'night': '—'}
+                    if cond: bands_data[name][time] = self.translate_val(cond.strip())
             
-            # УКВ Условия
             vhf_data = []
-            calculatedvhf = data.find('calculatedvhfconditions')
-            if calculatedvhf is not None:
-                for phen in calculatedvhf.findall('phenomenon'):
-                    name = phen.get('name')
-                    location = phen.get('location')
-                    val = phen.text
+            calc_vhf = data.find('calculatedvhfconditions')
+            if calc_vhf is not None:
+                for phen in calc_vhf.findall('phenomenon'):
+                    name, loc, val = phen.get('name'), phen.get('location'), phen.text
                     if val:
-                        translated_name = self.translate_vhf_name(name)
-                        translated_loc = self.translate_vhf_loc(location)
-                        translated_val = self.translate_condition(val.strip())
-                        vhf_data.append((f"{translated_name} ({translated_loc})", translated_val))
+                        label = f"{self.translate_vhf(name)} ({self.translate_vhf(loc)})"
+                        vhf_data.append((label, self.translate_val(val.strip())))
             
-            wx.CallAfter(self.update_list, params, bands_data, vhf_data, is_manual)
+            wx.CallAfter(self.update_ui, bands_data, vhf_data, get_t('updated'))
                 
         except Exception as e:
             wx.CallAfter(self.show_error, str(e))
 
-    def update_list(self, params, bands_data, vhf_data, is_manual):
+    def refresh_indexes_list(self):
         self.list_ctrl.DeleteAllItems()
-        for i, (label, value, desc) in enumerate(params):
+        show_help = self.show_help_cb.GetValue()
+        for i, (label, value, desc) in enumerate(self.current_params):
             self.list_ctrl.InsertItem(i, label)
             self.list_ctrl.SetItem(i, 1, str(value))
-            self.list_ctrl.SetItem(i, 2, desc)
+            if show_help:
+                self.list_ctrl.SetItem(i, 2, desc)
+
+    def update_ui(self, bands_data, vhf_data, updated_time):
+        self.refresh_indexes_list()
         
         self.bands_list.DeleteAllItems()
-        for i, (band, times) in enumerate(bands_data.items()):
+        sorted_bands = sorted(bands_data.keys(), key=lambda x: int(x.replace('m','')) if x.replace('m','').isdigit() else 0, reverse=True)
+        for i, band in enumerate(sorted_bands):
+            times = bands_data[band]
             self.bands_list.InsertItem(i, band.upper())
             self.bands_list.SetItem(i, 1, times['day'])
             self.bands_list.SetItem(i, 2, times['night'])
@@ -174,13 +185,8 @@ class SolarApp(wx.Frame):
             self.vhf_list.InsertItem(i, phen)
             self.vhf_list.SetItem(i, 1, val)
         
-        # Установить фокус на notebook (на первой вкладке)
-        self.notebook.SetSelection(0)
-        self.notebook.SetFocus()
-        
-        # Звуковое уведомление об обновлении
         wx.Bell()
-        # Включить кнопку обратно
+        self.SetTitle(f"Монитор R1BQE - Обновлено в {updated_time}")
         self.refresh_btn.Enable()
 
     def show_error(self, error_msg):
@@ -188,10 +194,8 @@ class SolarApp(wx.Frame):
         self.refresh_btn.Enable()
 
     def on_refresh(self, event):
-        # Отключить кнопку во время загрузки
         self.refresh_btn.Disable()
-        is_manual = event is not None
-        threading.Thread(target=self.load_data, args=(is_manual,)).start()
+        threading.Thread(target=self.load_data, args=(event is not None,)).start()
 
 if __name__ == '__main__':
     app = wx.App()
